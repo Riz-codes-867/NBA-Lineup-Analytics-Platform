@@ -1,0 +1,289 @@
+<section class="explorer">
+  <header class="explorer__header">
+    <div>
+      <h1>Lineup Explorer</h1>
+      <p class="subtitle">
+        Compare how player groups perform together. Ratings are per 100 possessions, so lineups with different
+        minutes are directly comparable. Hover any column header for a definition.
+      </p>
+    </div>
+    <button mat-stroked-button (click)="resetFilters()">
+      <mat-icon>restart_alt</mat-icon>
+      Reset
+    </button>
+  </header>
+
+  <!-- Filters: every control maps to a backend query param -->
+  <div class="controls">
+    <div class="control">
+      <label class="control__label">Lineup size</label>
+      <mat-button-toggle-group [(ngModel)]="lineupSize" (change)="reload()" aria-label="Lineup size">
+        @for (size of lineupSizes; track size) {
+          <mat-button-toggle [value]="size">{{ size }}-man</mat-button-toggle>
+        }
+      </mat-button-toggle-group>
+    </div>
+
+    <mat-form-field appearance="outline" subscriptSizing="dynamic">
+      <mat-label>Team</mat-label>
+      <mat-select [(ngModel)]="teamId" (selectionChange)="onTeamChange()">
+        <mat-option [value]="null">All teams</mat-option>
+        @for (team of teams; track team.id) {
+          <mat-option [value]="team.id">{{ team.name }}</mat-option>
+        }
+      </mat-select>
+    </mat-form-field>
+
+    <mat-form-field appearance="outline" subscriptSizing="dynamic">
+      <mat-label>Must include player</mat-label>
+      <mat-select [(ngModel)]="playerId" (selectionChange)="reload()">
+        <mat-option [value]="null">Anyone</mat-option>
+        @for (player of playerOptions; track player.id) {
+          <mat-option [value]="player.id">{{ player.name }}</mat-option>
+        }
+      </mat-select>
+    </mat-form-field>
+
+    <div class="control control--slider">
+      <label class="control__label" matTooltip="Hide lineups that barely played together: small samples are noisy">
+        Min. possessions: <strong>{{ minPossessions }}</strong>
+      </label>
+      <mat-slider min="0" max="100" step="5" discrete>
+        <input matSliderThumb [(ngModel)]="minPossessions" (change)="reload()" />
+      </mat-slider>
+    </div>
+  </div>
+
+  <!-- Quick views: coach-friendly presets that set the backend sort -->
+  <div class="quick-views">
+    <span class="control__label">Quick views</span>
+    <mat-button-toggle-group [(ngModel)]="quickView" (change)="onQuickView($event.value)" aria-label="Quick views">
+      @for (view of quickViews; track view.id) {
+        <mat-button-toggle [value]="view.id" [matTooltip]="view.hint">{{ view.label }}</mat-button-toggle>
+      }
+    </mat-button-toggle-group>
+  </div>
+
+  <div class="status">
+    @if (error) {
+      <span class="status__error">
+        <mat-icon>error_outline</mat-icon>
+        {{ error }}
+        <button mat-button (click)="reload()">Retry</button>
+      </span>
+    } @else {
+      <span>{{ dataSource.data.length }} lineups</span>
+    }
+  </div>
+
+  <!-- League map: every lineup placed by offense (x) and defense (y) -->
+  @if (chart) {
+    <div class="map-card">
+      <div class="map-card__chart">
+        <div class="map-card__title">
+          <h2>League map</h2>
+          <div class="legend">
+            @for (team of teams; track team.id) {
+              <span class="legend__item"><span class="legend__dot" [style.background]="teamColor(team.id)"></span>{{ team.name }}</span>
+            }
+            <span class="legend__item legend__hint">Dot size = possessions</span>
+          </div>
+        </div>
+
+        <svg
+          class="map"
+          [attr.viewBox]="'0 0 ' + chartWidth + ' ' + chartHeight"
+          role="img"
+          aria-label="Scatter plot of lineups by offensive rating and defensive rating"
+        >
+          <!-- grid + axes -->
+          @for (t of chart.xTicks; track t.value) {
+            <line class="grid" [attr.x1]="t.pos" [attr.x2]="t.pos" [attr.y1]="margin.top" [attr.y2]="chartHeight - margin.bottom" />
+            <text class="tick" [attr.x]="t.pos" [attr.y]="chartHeight - margin.bottom + 18" text-anchor="middle">{{ t.value }}</text>
+          }
+          @for (t of chart.yTicks; track t.value) {
+            <line class="grid" [attr.x1]="margin.left" [attr.x2]="chartWidth - margin.right" [attr.y1]="t.pos" [attr.y2]="t.pos" />
+            <text class="tick" [attr.x]="margin.left - 8" [attr.y]="t.pos + 4" text-anchor="end">{{ t.value }}</text>
+          }
+          <text class="axis-label" [attr.x]="margin.left + (chartWidth - margin.left - margin.right) / 2" [attr.y]="chartHeight - 8" text-anchor="middle">
+            Offensive rating → better offense
+          </text>
+          <text
+            class="axis-label"
+            text-anchor="middle"
+            [attr.transform]="'translate(16,' + (margin.top + (chartHeight - margin.top - margin.bottom) / 2) + ') rotate(-90)'"
+          >
+            Defensive rating (flipped) → better defense
+          </text>
+
+          <!-- net rating = 0 diagonal: dots above/right of it outscore opponents, below/left are outscored -->
+          <line class="net-zero" [attr.x1]="chart.netZero.x1" [attr.y1]="chart.netZero.y1" [attr.x2]="chart.netZero.x2" [attr.y2]="chart.netZero.y2" />
+
+          <!-- average crosshairs -->
+          <line class="avg" [attr.x1]="chart.avgX" [attr.x2]="chart.avgX" [attr.y1]="margin.top" [attr.y2]="chartHeight - margin.bottom" />
+          <line class="avg" [attr.x1]="margin.left" [attr.x2]="chartWidth - margin.right" [attr.y1]="chart.avgY" [attr.y2]="chart.avgY" />
+
+          <!-- quadrant labels -->
+          <text class="quadrant" [attr.x]="chartWidth - margin.right - 6" [attr.y]="margin.top + 14" text-anchor="end">Good offense · good defense</text>
+          <text class="quadrant" [attr.x]="margin.left + 6" [attr.y]="margin.top + 14">Defense-first</text>
+          <text class="quadrant" [attr.x]="chartWidth - margin.right - 6" [attr.y]="chartHeight - margin.bottom - 8" text-anchor="end">Offense-first</text>
+          <text class="quadrant" [attr.x]="margin.left + 6" [attr.y]="chartHeight - margin.bottom - 8">Struggling</text>
+
+          <!-- dots -->
+          @for (dot of chart.dots; track dot.key) {
+            <circle
+              class="dot"
+              [class.dot--selected]="dot.key === selectedKey"
+              [class.dot--dim]="selectedKey && dot.key !== selectedKey"
+              [attr.cx]="dot.x"
+              [attr.cy]="dot.y"
+              [attr.r]="dot.key === selectedKey ? dot.r + 3 : dot.r"
+              [attr.fill]="dot.color"
+              (click)="select(dot.row)"
+              (mouseenter)="hoverKey = dot.key"
+              (mouseleave)="hoverKey = null"
+            >
+              <title>{{ dot.label }}</title>
+            </circle>
+          }
+        </svg>
+      </div>
+
+      <!-- detail panel for the selected lineup -->
+      <aside class="map-card__detail">
+        @if (selected; as s) {
+          <div class="detail__team" [style.color]="teamColor(s.team_id)">{{ s.team_name }}</div>
+          <ul class="detail__players">
+            @for (p of s.players; track p.player_id) {
+              <li>{{ p.name }}</li>
+            }
+          </ul>
+          <div class="detail__net" [style.background]="netColor(s.net_rating)">
+            <span>Net rating</span>
+            <strong>{{ signed(s.net_rating) }}</strong>
+          </div>
+          <dl class="detail__stats">
+            <dt>ORtg</dt><dd>{{ s.offensive_rating | number: '1.1-1' }} <small>(avg {{ chart.avgOrtg | number: '1.1-1' }})</small></dd>
+            <dt>DRtg</dt><dd>{{ s.defensive_rating | number: '1.1-1' }} <small>(avg {{ chart.avgDrtg | number: '1.1-1' }})</small></dd>
+            <dt>Possessions</dt><dd>{{ s.total_possessions }}</dd>
+            <dt>eFG% / Opp</dt><dd>{{ s.offensive_efg_pct | percent: '1.0-0' }} / {{ s.defensive_efg_pct | percent: '1.0-0' }}</dd>
+            <dt>OREB% / DREB%</dt><dd>{{ s.oreb_pct | percent: '1.0-0' }} / {{ s.dreb_pct | percent: '1.0-0' }}</dd>
+            <dt>TOV% / Forced</dt><dd>{{ s.offensive_tov_pct | percent: '1.0-0' }} / {{ s.defensive_tov_pct | percent: '1.0-0' }}</dd>
+          </dl>
+          <button mat-button (click)="selectedKey = null">Clear selection</button>
+        } @else {
+          <div class="detail__empty">
+            <mat-icon>ads_click</mat-icon>
+            <p>Click a dot or a table row to see that lineup's profile.</p>
+            <p class="detail__hint">
+              Dots in the top-right beat the average on both ends. Dots above the dashed diagonal outscore their opponents.
+            </p>
+          </div>
+        }
+      </aside>
+    </div>
+  }
+
+  <div class="table-card">
+    @if (loading) {
+      <mat-progress-bar mode="indeterminate"></mat-progress-bar>
+    }
+
+    <div class="table-scroll">
+      <table
+        mat-table
+        [dataSource]="dataSource"
+        [trackBy]="trackByLineup"
+        matSort
+        [matSortActive]="sortBy"
+        [matSortDirection]="order"
+        matSortDisableClear
+        (matSortChange)="onSortChange($event)"
+      >
+        <ng-container matColumnDef="players" sticky>
+          <th mat-header-cell *matHeaderCellDef>Lineup</th>
+          <td mat-cell *matCellDef="let row">
+            <div class="lineup-names">{{ lineupNames(row) }}</div>
+            <div class="lineup-team">{{ row.team_name }}</div>
+          </td>
+        </ng-container>
+
+        <ng-container matColumnDef="total_possessions">
+          <th mat-header-cell *matHeaderCellDef mat-sort-header [matTooltip]="glossary['total_possessions']">Poss</th>
+          <td mat-cell *matCellDef="let row">{{ row.total_possessions }}</td>
+        </ng-container>
+
+        <ng-container matColumnDef="net_rating">
+          <th mat-header-cell *matHeaderCellDef mat-sort-header [matTooltip]="glossary['net_rating']">Net</th>
+          <td mat-cell *matCellDef="let row">
+            <span class="net-pill" [style.background]="netColor(row.net_rating)">{{ signed(row.net_rating) }}</span>
+          </td>
+        </ng-container>
+
+        <ng-container matColumnDef="offensive_rating">
+          <th mat-header-cell *matHeaderCellDef mat-sort-header [matTooltip]="glossary['offensive_rating']">ORtg</th>
+          <td mat-cell *matCellDef="let row">{{ row.offensive_rating | number: '1.1-1' }}</td>
+        </ng-container>
+
+        <ng-container matColumnDef="defensive_rating">
+          <th mat-header-cell *matHeaderCellDef mat-sort-header [matTooltip]="glossary['defensive_rating']">DRtg</th>
+          <td mat-cell *matCellDef="let row">{{ row.defensive_rating | number: '1.1-1' }}</td>
+        </ng-container>
+
+        <ng-container matColumnDef="plus_minus">
+          <th mat-header-cell *matHeaderCellDef mat-sort-header [matTooltip]="glossary['plus_minus']">+/-</th>
+          <td mat-cell *matCellDef="let row">{{ row.plus_minus > 0 ? '+' : '' }}{{ row.plus_minus }}</td>
+        </ng-container>
+
+        <ng-container matColumnDef="offensive_efg_pct">
+          <th mat-header-cell *matHeaderCellDef mat-sort-header [matTooltip]="glossary['offensive_efg_pct']">eFG%</th>
+          <td mat-cell *matCellDef="let row">{{ row.offensive_efg_pct | percent: '1.1-1' }}</td>
+        </ng-container>
+
+        <ng-container matColumnDef="defensive_efg_pct">
+          <th mat-header-cell *matHeaderCellDef mat-sort-header [matTooltip]="glossary['defensive_efg_pct']">Opp eFG%</th>
+          <td mat-cell *matCellDef="let row">{{ row.defensive_efg_pct | percent: '1.1-1' }}</td>
+        </ng-container>
+
+        <ng-container matColumnDef="offensive_tov_pct">
+          <th mat-header-cell *matHeaderCellDef mat-sort-header [matTooltip]="glossary['offensive_tov_pct']">TOV%</th>
+          <td mat-cell *matCellDef="let row">{{ row.offensive_tov_pct | percent: '1.1-1' }}</td>
+        </ng-container>
+
+        <ng-container matColumnDef="defensive_tov_pct">
+          <th mat-header-cell *matHeaderCellDef mat-sort-header [matTooltip]="glossary['defensive_tov_pct']">Forced TOV%</th>
+          <td mat-cell *matCellDef="let row">{{ row.defensive_tov_pct | percent: '1.1-1' }}</td>
+        </ng-container>
+
+        <ng-container matColumnDef="oreb_pct">
+          <th mat-header-cell *matHeaderCellDef mat-sort-header [matTooltip]="glossary['oreb_pct']">OREB%</th>
+          <td mat-cell *matCellDef="let row">{{ row.oreb_pct | percent: '1.1-1' }}</td>
+        </ng-container>
+
+        <ng-container matColumnDef="dreb_pct">
+          <th mat-header-cell *matHeaderCellDef mat-sort-header [matTooltip]="glossary['dreb_pct']">DREB%</th>
+          <td mat-cell *matCellDef="let row">{{ row.dreb_pct | percent: '1.1-1' }}</td>
+        </ng-container>
+
+        <tr mat-header-row *matHeaderRowDef="displayedColumns; sticky: true"></tr>
+        <tr
+          mat-row
+          *matRowDef="let row; columns: displayedColumns"
+          class="clickable-row"
+          [class.selected-row]="rowKey(row) === selectedKey"
+          (click)="select(row)"
+        ></tr>
+
+        <tr class="mat-row" *matNoDataRow>
+          <td class="no-data" [attr.colspan]="displayedColumns.length">
+            @if (!loading) {
+              No lineups match these filters. Try lowering the minimum possessions.
+            }
+          </td>
+        </tr>
+      </table>
+    </div>
+
+    <mat-paginator [pageSizeOptions]="[10, 25, 50]" [pageSize]="10" showFirstLastButtons></mat-paginator>
+  </div>
+</section>
