@@ -160,6 +160,6 @@ A full walkthrough of the app is in [`screenshots/demo-recording.mov`](screensho
 
 ## Data
 
-The dataset is a small fictional league: 3 teams, 48 players who saw the floor, 7 games, and 1,348 possessions. The dataset was provided by OKC's fictional team project.
+The dataset is a small fictional league: 3 teams, 48 players who saw the floor, 7 games, and 1,348 possessions.
 
 
