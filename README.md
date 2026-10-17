@@ -3,7 +3,7 @@
 A full-stack basketball analytics tool that turns raw play-by-play possession data into lineup-level performance metrics, so a coaching staff can find which player combinations actually win their minutes.
 
 **Live demo:** https://frontend-production-3a73.up.railway.app/lineups-summary
-**API:** https://backend-production-14b2e.up.railway.app/api/v1/lineups
+**API (open link in icognito tab):** https://backend-production-14b2e.up.railway.app/api/v1/lineups
 
 ![Lineup Explorer](screenshots/explorer-5-man.png)
 
