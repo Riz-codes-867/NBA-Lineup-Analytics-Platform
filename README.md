@@ -162,6 +162,4 @@ A full walkthrough of the app is in [`screenshots/demo-recording.mov`](screensho
 
 The dataset is a small fictional league: 3 teams, 48 players who saw the floor, 7 games, and 1,348 possessions. The teams and players are fictional, so treat the results as a demonstration of the method rather than real scouting.
 
-## Acknowledgments
 
-This project started from a provided starter scaffold: the data models, raw dataset, ingest script, and an empty Django view and Angular shell. The aggregation engine, advanced metrics, API filtering, tests, the full user interface, and the deployment were built on top of it.
